@@ -36,3 +36,16 @@ Run on your Docker host:
 ```bash
 curl -fsSL -o install.sh https://raw.githubusercontent.com/MrTangLuyao/DockerAutoUPnP/main/install.sh
 sudo bash install.sh install
+
+---
+
+## Usage
+
+```bash
+sudo bash install.sh install       # Install & start service
+sudo bash install.sh logs          # View logs
+sudo bash install.sh status        # Check container status
+sudo bash install.sh testmap       # Run a UPnP self-test (add/remove a temporary port)
+sudo bash install.sh down          # Stop service
+sudo bash install.sh uninstall     # Uninstall completely
+
