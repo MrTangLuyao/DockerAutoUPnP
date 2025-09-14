@@ -36,8 +36,9 @@ Run on your Docker host:
 ```bash
 curl -fsSL -o install.sh https://raw.githubusercontent.com/MrTangLuyao/DockerAutoUPnP/main/install.sh
 sudo bash install.sh install
+```
 
----
+
 
 ## Usage
 
