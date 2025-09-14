@@ -29,13 +29,12 @@ Only expose services you intend to make public, and secure them properly.
 
 ---
 
-## Quick Start
+## Quick Install and Run
 
 Run on your Docker host:
 
 ```bash
-curl -fsSL -o install.sh https://raw.githubusercontent.com/MrTangLuyao/DockerAutoUPnP/main/install.sh
-sudo bash install.sh install
+bash <(curl -fsSL https://raw.githubusercontent.com/MrTangLuyao/DockerAutoUPnP/main/install.sh | sed -e 's/\r$//' -e '/^---$/d' -e '/^```/d')
 ```
 
 
@@ -91,8 +90,7 @@ sudo bash install.sh uninstall     # Uninstall completely
 在 Docker 宿主机上运行：
 
 ```bash
-curl -fsSL -o install.sh https://raw.githubusercontent.com/MrTangLuyao/DockerAutoUPnP/main/install.sh
-sudo bash install.sh install
+bash <(curl -fsSL https://raw.githubusercontent.com/MrTangLuyao/DockerAutoUPnP/main/install.sh | sed -e 's/\r$//' -e '/^---$/d' -e '/^```/d')
 ```
 
 ## 使用方法
