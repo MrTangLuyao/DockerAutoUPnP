@@ -1,31 +1,31 @@
 #!/bin/bash
 
-# 脚本出错时立即退出
+# Exit immediately if a command exits with a non-zero status.
 set -e
 
-# --- 默认配置 (可以被 config.env 覆盖) ---
-# 状态文件路径
+# --- Default Configuration (can be overridden by config.env) ---
+# Path to the state file
 STATE_FILE="/var/lib/docker-upnp-sync/state.json"
-# 日志文件路径
+# Path to the log file
 LOG_FILE="/var/log/docker-upnp-sync.log"
-# 检查间隔（秒）
+# Check interval in seconds
 CHECK_INTERVAL=60
-# UPNP 映射的描述
+# Description for the UPnP port mappings on the router
 UPNP_DESCRIPTION="Docker-UPnP-Sync"
 
-# --- 函数定义 ---
+# --- Function Definitions ---
 
-# 日志记录函数
+# Logging function
 log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"
 }
 
-# 获取本机IP
+# Get the local IP address of the host
 get_local_ip() {
     hostname -I | awk '{print $1}'
 }
 
-# 获取当前需要映射的端口 (从Docker)
+# Get the desired ports to be mapped (from running Docker containers)
 get_desired_ports() {
     docker ps --format "{{.ID}}" | xargs --no-run-if-empty docker inspect | \
     jq -r '
@@ -36,44 +36,44 @@ get_desired_ports() {
     ' | sort -u
 }
 
-# 清理所有管理的端口
+# Clean up all managed ports on script exit
 cleanup() {
-    log "接收到终止信号，开始清理所有端口映射..."
+    log "Termination signal received, cleaning up all port mappings..."
     if [ ! -f "$STATE_FILE" ]; then
-        log "状态文件不存在，无需清理。"
+        log "State file not found. No cleanup needed."
         exit 0
     fi
 
-    # 读取状态文件中的端口进行清理
+    # Read ports from the state file and remove them
     jq -r 'keys[]' "$STATE_FILE" | while read -r port_key; do
         port=$(echo "$port_key" | cut -d'/' -f1)
         proto=$(echo "$port_key" | cut -d'/' -f2)
-        log "正在移除端口映射: ${port}/${proto}..."
+        log "Removing port mapping: ${port}/${proto}..."
         if upnpc -d "$port" "$proto"; then
-            log "成功移除: ${port}/${proto}"
+            log "Successfully removed: ${port}/${proto}"
         else
-            log "警告: 移除 ${port}/${proto} 失败，可能已被手动移除。"
+            log "Warning: Failed to remove ${port}/${proto}. It might have been removed manually."
         fi
     done
     rm -f "$STATE_FILE"
-    log "清理完成。"
+    log "Cleanup complete."
     exit 0
 }
 
-# --- 主逻辑 ---
+# --- Main Logic ---
 
-# 注册信号处理，确保Ctrl+C可以触发清理
+# Register signal handler to trigger cleanup on Ctrl+C or termination
 trap cleanup SIGINT SIGTERM
 
-# 加载配置文件 (如果存在)
+# Load configuration file if it exists
 CONFIG_FILE="/etc/docker-upnp-sync/config.env"
 if [ -f "$CONFIG_FILE" ]; then
-    log "加载配置文件: $CONFIG_FILE"
+    log "Loading configuration from: $CONFIG_FILE"
     # shellcheck source=/dev/null
     source "$CONFIG_FILE"
 fi
 
-# 创建必要的目录和文件
+# Create necessary directories and files
 mkdir -p "$(dirname "$STATE_FILE")"
 touch "$STATE_FILE"
 mkdir -p "$(dirname "$LOG_FILE")"
@@ -81,65 +81,65 @@ touch "$LOG_FILE"
 
 LOCAL_IP=$(get_local_ip)
 if [ -z "$LOCAL_IP" ]; then
-    log "错误: 无法获取本机IP地址，退出。"
+    log "Error: Could not determine local IP address. Exiting."
     exit 1
 fi
-log "脚本启动，本机IP: $LOCAL_IP"
+log "Script starting, local IP: $LOCAL_IP"
 
-# 主循环
+# Main loop
 while true; do
-    log "--- 开始同步检查 ---"
+    log "--- Starting sync cycle ---"
 
-    # 获取期望状态 (Docker) 和当前状态 (State File)
+    # Get the desired state (from Docker) and the current managed state (from state file)
     desired_ports=$(get_desired_ports)
     managed_ports=$(jq -r 'keys[]' "$STATE_FILE")
 
-    # 1. 移除不再需要的端口
+    # 1. Remove ports that are no longer needed
     comm -13 <(echo "$desired_ports" | sort) <(echo "$managed_ports" | sort) | while read -r port_key; do
         port=$(echo "$port_key" | cut -d'/' -f1)
         proto=$(echo "$port_key" | cut -d'/' -f2)
-        log "检测到不再需要的端口: ${port_key}，正在移除..."
+        log "Port no longer required: ${port_key}. Removing..."
         if upnpc -d "$port" "$proto"; then
-            log "成功从路由器移除: ${port}/${proto}"
-            # 从状态文件中删除
+            log "Successfully removed from router: ${port}/${proto}"
+            # Remove from state file
             temp_state=$(jq "del(.\"$port_key\")" "$STATE_FILE")
             echo "$temp_state" > "$STATE_FILE"
         else
-            log "警告: 移除 ${port}/${proto} 失败，将从状态文件中移除记录。"
+            log "Warning: Failed to remove ${port}/${proto} from router. Removing from state file anyway."
             temp_state=$(jq "del(.\"$port_key\")" "$STATE_FILE")
             echo "$temp_state" > "$STATE_FILE"
         fi
     done
 
-    # 2. 添加新端口或检查现有端口（自愈）
+    # 2. Add new ports or re-add missing ports (self-healing)
     echo "$desired_ports" | while read -r port_key; do
         port=$(echo "$port_key" | cut -d'/' -f1)
         proto=$(echo "$port_key" | cut -d'/' -f2)
         
-        # 检查路由器上是否存在
-        # upnpc -l 的输出格式不稳定，这里采用更直接的方式：尝试获取特定映射
+        # Check if the mapping already exists on the router
+        # upnpc -l output is not stable for parsing, so we'll check specifically
         existing_mapping=$(upnpc -s | grep "TCP ${port} -> ${LOCAL_IP}:${port}" || upnpc -s | grep "UDP ${port} -> ${LOCAL_IP}:${port}")
 
         if [ -n "$existing_mapping" ]; then
-            log "端口映射已存在且正确: ${port_key}"
-            # 确保状态文件中有记录
+            log "Mapping already exists and is correct: ${port_key}"
+            # Ensure it's tracked in the state file
             if ! jq -e ".\"$port_key\"" "$STATE_FILE" > /dev/null; then
                  temp_state=$(jq ". + {\"$port_key\": {\"status\": \"managed\"}}" "$STATE_FILE")
                  echo "$temp_state" > "$STATE_FILE"
             fi
         else
-            log "检测到新端口或丢失的映射: ${port_key}，正在添加..."
+            log "New or missing mapping detected: ${port_key}. Adding..."
             if upnpc -a "$LOCAL_IP" "$port" "$port" "$proto" -e "$UPNP_DESCRIPTION"; then
-                log "成功添加映射: [WAN]:${port}/${proto} -> ${LOCAL_IP}:${port}"
-                # 添加到状态文件
+                log "Successfully added mapping: [WAN]:${port}/${proto} -> ${LOCAL_IP}:${port}"
+                # Add to state file
                 temp_state=$(jq ". + {\"$port_key\": {\"status\": \"managed\"}}" "$STATE_FILE")
                 echo "$temp_state" > "$STATE_FILE"
             else
-                log "错误: 添加映射 ${port}/${proto} 失败。"
+                log "Error: Failed to add mapping for ${port}/${proto}."
             fi
         fi
     done
 
-    log "--- 同步完成，等待 ${CHECK_INTERVAL} 秒 ---"
+    log "--- Sync cycle complete, sleeping for ${CHECK_INTERVAL} seconds ---"
     sleep "$CHECK_INTERVAL"
 done
