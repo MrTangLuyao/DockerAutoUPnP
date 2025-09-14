@@ -1,19 +1,12 @@
-
----
-
-# 📄 install.sh (English, with auto IP detection)
-
-```bash
+cat > install.sh <<'BASH'
 #!/usr/bin/env bash
-# DockerAutoUPnP - one-click installer
-# Automatically maps Docker container ports to your router via UPnP
-
+# DockerAutoUPnP - one-click installer (English)
 set -euo pipefail
 
 APP_NAME="docker-upnp"
 WORK_DIR="/opt/docker-upnp"
 SCAN_INTERVAL_DEFAULT="10"
-HOST_IP=""   # will be auto-detected
+HOST_IP=""
 
 usage() {
   cat <<EOF
@@ -39,9 +32,9 @@ EOF
 CMD="${1:-help}"; shift || true
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --host-ip) HOST_IP="$2"; shift 2 ;;
-    --dir) WORK_DIR="$2"; shift 2 ;;
-    --scan-interval) SCAN_INTERVAL_DEFAULT="$2"; shift 2 ;;
+    --host-ip) HOST_IP="${2:-}"; shift 2 ;;
+    --dir) WORK_DIR="${2:-}"; shift 2 ;;
+    --scan-interval) SCAN_INTERVAL_DEFAULT="${2:-}"; shift 2 ;;
     *) echo "Unknown option: $1"; usage; exit 1 ;;
   esac
 done
@@ -55,7 +48,7 @@ detect_ip() {
 
 compose_cmd() {
   if docker compose version >/dev/null 2>&1; then echo "docker compose"
-  elif docker-compose version >/dev/null 2>&1; then echo "docker-compose"
+  elif command -v docker-compose >/dev/null 2>&1; then echo "docker-compose"
   else echo ""; fi
 }
 
@@ -68,9 +61,7 @@ ensure_docker() {
     curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
     chmod a+r /etc/apt/keyrings/docker.gpg
     . /etc/os-release
-    echo \
-      "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-      ${UBUNTU_CODENAME:-$(lsb_release -cs)} stable" | tee /etc/apt/sources.list.d/docker.list >/dev/null
+    echo "deb [arch=\$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \${UBUNTU_CODENAME:-\$(lsb_release -cs)} stable" | tee /etc/apt/sources.list.d/docker.list >/dev/null
     apt-get update
     apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
     systemctl enable --now docker
@@ -150,8 +141,22 @@ desired_ports() {
 read_state() { jq -r '.[]' "$STATE_FILE" 2>/dev/null | sort -u; }
 write_state() { jq -n --argjson arr "$(printf '%s\n' "$@" | jq -R . | jq -s .)" '$arr' > "$STATE_FILE".tmp && mv "$STATE_FILE".tmp "$STATE_FILE"; }
 
-add_mapping() { upnpc -e "docker-upnp" -a "$HOST_ADDR" "$2" "$2" "$(echo "$1" | tr a-z A-Z)" >/dev/null 2>&1 && log "Added $1:$2"; }
-del_mapping() { upnpc -d "$2" "$(echo "$1" | tr a-z A-Z)" >/dev/null 2>&1 && log "Deleted $1:$2"; }
+add_mapping() {
+  local proto="$1" port="$2"
+  if upnpc -e "docker-upnp" -a "$HOST_ADDR" "$port" "$port" "$(echo "$proto" | tr a-z A-Z)" >/dev/null 2>&1; then
+    log "Added mapping: $proto:$port -> $HOST_ADDR:$port"
+  else
+    log "WARN: add failed: $proto:$port"
+  fi
+}
+del_mapping() {
+  local proto="$1" port="$2"
+  if upnpc -d "$port" "$(echo "$proto" | tr a-z A-Z)" >/dev/null 2>&1; then
+    log "Deleted mapping: $proto:$port"
+  else
+    log "WARN: delete failed: $proto:$port"
+  fi
+}
 
 sync_once() {
   mapfile -t desired < <(desired_ports || true)
@@ -164,8 +169,19 @@ sync_once() {
   mapfile -t to_add < <(comm -23 "$tmp/desired" "$tmp/current" || true)
   mapfile -t to_del < <(comm -13 "$tmp/desired" "$tmp/current" || true)
 
-  for item in "${to_add[@]:-}"; do proto="${item%%:*}"; port="${item##*:}"; add_mapping "$proto" "$port"; current+=("$item"); done
-  for item in "${to_del[@]:-}"; do proto="${item%%:*}"; port="${item##*:}"; del_mapping "$proto" "$port"; current=("${current[@]/$item}"); done
+  for item in "${to_add[@]:-}"; do
+    proto="${item%%:*}"; port="${item##*:}"
+    add_mapping "$proto" "$port"
+    current+=("$item")
+  done
+  for item in "${to_del[@]:-}"; do
+    proto="${item%%:*}"; port="${item##*:}"
+    del_mapping "$proto" "$port"
+    # remove from current
+    tmpc=()
+    for c in "${current[@]:-}"; do [ "$c" = "$item" ] || tmpc+=("$c"); done
+    current=("${tmpc[@]:-}")
+  done
 
   write_state "${current[@]:-}"
   rm -rf "$tmp"
@@ -184,12 +200,16 @@ SCRIPT
 compose() { (cd "$WORK_DIR" && $(compose_cmd) "$@"); }
 
 case "$CMD" in
-  install) require_root; ensure_docker; write_files; compose build; compose up -d; echo "[✓] Installed and running." ;;
-  uninstall) require_root; compose down || true; rm -rf "$WORK_DIR"; echo "[✓] Uninstalled." ;;
-  up) require_root; compose up -d ;;
-  down) require_root; compose down ;;
-  status) docker ps --filter "name=$APP_NAME" ;;
-  logs) docker logs -f $APP_NAME ;;
-  testmap) docker exec -it $APP_NAME sh -lc 'upnpc -l' ;;
-  help|*) usage ;;
+  install) require_root; ensure_docker; write_files; compose build; compose up -d; echo "[✓] Installed and running.";;
+  uninstall) require_root; compose down || true; rm -rf "$WORK_DIR"; echo "[✓] Uninstalled.";;
+  up) require_root; compose up -d;;
+  down) require_root; compose down;;
+  status) docker ps --filter "name=$APP_NAME";;
+  logs) docker logs -f "$APP_NAME";;
+  testmap) docker exec -it "$APP_NAME" sh -lc 'upnpc -l';;
+  help|*) usage;;
 esac
+BASH
+
+chmod +x install.sh
+sudo bash install.sh install
