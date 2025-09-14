@@ -56,7 +56,8 @@ sudo bash install.sh uninstall     # Uninstall completely
 
 # DockerAutoUPnP
 
-自动通过 **UPnP** 将你的 Docker 容器端口暴露到互联网。  
+自动通过 **UPnP** 将你选择暴露端口的Docker容器自动端口映射，从而让其他设备访问。 
+常见用途：小型家庭/企业服务器运行docker容器 -> DockerAutoUPnP -> 互联网访问 
 本项目提供一个一键安装脚本 (`install.sh`)，功能包括：
 
 - 监控正在运行的 Docker 容器并检测已发布的端口
