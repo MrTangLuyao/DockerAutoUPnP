@@ -1,0 +1,16 @@
+[Unit]
+Description=Docker UPnP Port Sync Service
+After=network-online.target docker.service
+Requires=network-online.target docker.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/docker-upnp-sync
+Restart=always
+RestartSec=10
+KillMode=process
+TimeoutStopSec=30
+User=root
+
+[Install]
+WantedBy=multi-user.target
